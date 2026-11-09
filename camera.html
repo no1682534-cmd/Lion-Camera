@@ -1,0 +1,408 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lion Swimming Course - Camera</title>
+
+<style>
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  min-height:100vh;
+  padding:20px;
+  background:#f5f8fc;
+  color:#17283f;
+  font-family:Arial,sans-serif;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+.container{width:100%;max-width:480px}
+
+.header{margin-bottom:20px}
+
+.logo{
+  width:48px;height:48px;
+  display:grid;place-items:center;
+  background:#1265c8;color:white;
+  border-radius:14px;font-size:26px;
+  margin-bottom:14px;
+}
+
+h2{margin:0 0 6px;font-size:21px}
+.subtitle{color:#718096;font-size:13px}
+
+.camera-box{
+  background:#0c1b2c;
+  border-radius:15px;
+  min-height:290px;
+  overflow:hidden;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+video,.preview{
+  width:100%;
+  max-height:480px;
+  object-fit:contain;
+}
+
+video[hidden],.preview[hidden]{display:none}
+
+.placeholder{
+  color:white;
+  text-align:center;
+  padding:25px;
+  line-height:1.7;
+}
+
+.status{
+  padding:13px;
+  margin:14px 0;
+  border-radius:10px;
+  background:#eaf4ff;
+  color:#1265c8;
+  font-size:13px;
+  line-height:1.5;
+}
+
+.status.error{background:#fff0f0;color:#bd343d}
+.status.success{background:#e8f8f1;color:#13845d}
+
+.buttons{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:14px;
+}
+
+button{
+  padding:14px;
+  border:0;
+  border-radius:10px;
+  font-weight:bold;
+  font-size:14px;
+  cursor:pointer;
+}
+
+.primary{background:#1265c8;color:white}
+.secondary{background:#eaf4ff;color:#1265c8}
+.cancel{
+  width:100%;
+  margin-top:10px;
+  background:white;
+  border:1px solid #e4ebf3;
+  color:#718096;
+}
+
+button:disabled{opacity:.45;cursor:not-allowed}
+[hidden]{display:none!important}
+
+.foot{
+  text-align:center;
+  color:#8998a9;
+  font-size:11px;
+  margin-top:20px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <div class="logo">≋</div>
+    <h2>Lion Swimming Course</h2>
+    <div class="subtitle">Camera Absensi Pelatih</div>
+  </div>
+
+  <div class="camera-box">
+
+    <div class="placeholder" id="placeholder">
+      Kamera belum diaktifkan.
+      <br>
+      Tekan tombol Aktifkan Kamera.
+    </div>
+
+    <video id="video" autoplay playsinline muted hidden></video>
+    <img id="preview" class="preview" hidden>
+    <canvas id="canvas" hidden></canvas>
+
+  </div>
+
+  <div id="status" class="status">
+    Izinkan akses kamera pada browser.
+  </div>
+
+  <div class="buttons">
+
+    <button id="startBtn" class="primary" onclick="startCamera()">
+      Aktifkan Kamera
+    </button>
+
+    <button id="captureBtn" class="primary" onclick="capturePhoto()" hidden>
+      Ambil Foto
+    </button>
+
+    <button id="retakeBtn" class="secondary" onclick="retakePhoto()" hidden>
+      Ulangi Foto
+    </button>
+
+    <button id="sendBtn" class="primary" onclick="sendPhoto()" hidden>
+      Kirim Foto
+    </button>
+
+  </div>
+
+  <button class="cancel" onclick="cancelCamera()">
+    Batalkan
+  </button>
+
+  <div class="foot">
+    Lion Swimming Course · Attendance System
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+const params = new URLSearchParams(location.search);
+
+const nonce = params.get('nonce') || '';
+
+let returnOrigin = '';
+
+try {
+  const parsed = new URL(params.get('returnOrigin') || '');
+
+  const host = parsed.hostname;
+
+  const allowed =
+    parsed.protocol === 'https:' &&
+    (
+      host === 'script.google.com' ||
+      host === 'script.googleusercontent.com' ||
+      host.endsWith('.script.googleusercontent.com')
+    );
+
+  if (allowed) returnOrigin = parsed.origin;
+
+} catch(e) {}
+
+let stream = null;
+let capturedPhoto = '';
+
+const $ = id => document.getElementById(id);
+
+function showStatus(message,type='') {
+  $('status').textContent = message;
+  $('status').className = 'status ' + type;
+}
+
+function sendToApp(type,extra={}) {
+
+  if (!window.opener || window.opener.closed) {
+    showStatus('Aplikasi utama tidak ditemukan.','error');
+    return false;
+  }
+
+  if (!returnOrigin || !nonce) {
+    showStatus('Sesi kamera tidak valid.','error');
+    return false;
+  }
+
+  window.opener.postMessage({
+    channel:'LION_CAMERA',
+    type:type,
+    nonce:nonce,
+    ...extra
+  },returnOrigin);
+
+  return true;
+}
+
+function stopStream() {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+}
+
+async function startCamera() {
+
+  try {
+
+    if (!returnOrigin || !nonce || !window.opener) {
+      throw new Error(
+        'Buka halaman kamera melalui aplikasi Lion Swimming Course.'
+      );
+    }
+
+    if (!navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia) {
+      throw new Error(
+        'Browser tidak mendukung akses kamera. Pastikan menggunakan HTTPS.'
+      );
+    }
+
+    stopStream();
+
+    capturedPhoto = '';
+
+    $('preview').hidden = true;
+    $('video').hidden = false;
+    $('placeholder').hidden = true;
+
+    $('startBtn').disabled = true;
+
+    showStatus('Meminta izin kamera...');
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:'environment'},
+        width:{ideal:1280},
+        height:{ideal:720}
+      },
+      audio:false
+    });
+
+    $('video').srcObject = stream;
+    await $('video').play();
+
+    $('startBtn').hidden = true;
+    $('captureBtn').hidden = false;
+    $('captureBtn').disabled = false;
+
+    $('retakeBtn').hidden = true;
+    $('sendBtn').hidden = true;
+
+    showStatus('Kamera aktif. Silakan ambil foto.','success');
+
+  } catch(error) {
+
+    stopStream();
+
+    $('video').hidden = true;
+    $('placeholder').hidden = false;
+
+    $('startBtn').hidden = false;
+    $('startBtn').disabled = false;
+    $('captureBtn').hidden = true;
+
+    let message = error.message;
+
+    if (error.name === 'NotAllowedError') {
+      message = 'Izin kamera ditolak. Aktifkan izin kamera pada browser.';
+    }
+
+    if (error.name === 'NotFoundError') {
+      message = 'Kamera tidak ditemukan pada perangkat.';
+    }
+
+    if (error.name === 'NotReadableError') {
+      message = 'Kamera sedang digunakan aplikasi lain.';
+    }
+
+    showStatus(message,'error');
+
+    sendToApp('ERROR',{message:message});
+  }
+}
+
+function capturePhoto() {
+
+  const video = $('video');
+  const canvas = $('canvas');
+
+  if (!stream || !video.videoWidth) {
+    showStatus('Kamera belum siap.','error');
+    return;
+  }
+
+  const scale = Math.min(1,1280/video.videoWidth);
+
+  canvas.width = Math.round(video.videoWidth*scale);
+  canvas.height = Math.round(video.videoHeight*scale);
+
+  canvas.getContext('2d').drawImage(
+    video,0,0,canvas.width,canvas.height
+  );
+
+  capturedPhoto = canvas.toDataURL('image/jpeg',0.78);
+
+  stopStream();
+
+  $('preview').src = capturedPhoto;
+  $('preview').hidden = false;
+  $('video').hidden = true;
+
+  $('captureBtn').hidden = true;
+  $('retakeBtn').hidden = false;
+  $('sendBtn').hidden = false;
+
+  showStatus('Foto berhasil diambil. Periksa hasilnya.','success');
+}
+
+function retakePhoto() {
+
+  capturedPhoto = '';
+
+  $('preview').hidden = true;
+  $('retakeBtn').hidden = true;
+  $('sendBtn').hidden = true;
+
+  startCamera();
+}
+
+function sendPhoto() {
+
+  if (!capturedPhoto) {
+    showStatus('Ambil foto terlebih dahulu.','error');
+    return;
+  }
+
+  $('sendBtn').disabled = true;
+
+  const sent = sendToApp('CAPTURE',{
+    photoBase64:capturedPhoto
+  });
+
+  if (sent) {
+    showStatus('Foto berhasil dikirim ke aplikasi.','success');
+
+    setTimeout(() => window.close(),500);
+
+  } else {
+    $('sendBtn').disabled = false;
+  }
+}
+
+function cancelCamera() {
+
+  sendToApp('CANCEL');
+  stopStream();
+
+  setTimeout(() => window.close(),200);
+}
+
+window.addEventListener('pagehide',stopStream);
+
+if (!nonce || !returnOrigin || !window.opener) {
+  showStatus(
+    'Sesi tidak valid. Buka kamera melalui aplikasi utama.',
+    'error'
+  );
+
+  $('startBtn').disabled = true;
+}
+</script>
+
+</body>
+</html>
