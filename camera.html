@@ -184,13 +184,14 @@ try {
 
   const host = parsed.hostname;
 
-  const allowed =
-    parsed.protocol === 'https:' &&
-    (
-      host === 'script.google.com' ||
-      host === 'script.googleusercontent.com' ||
-      host.endsWith('.script.googleusercontent.com')
-    );
+
+const allowed =
+  parsed.protocol === 'https:' &&
+  (
+    host === 'script.google.com' ||
+    /(^|[-.])script\.googleusercontent\.com$/i.test(host)
+  );
+
 
   if (allowed) returnOrigin = parsed.origin;
 
