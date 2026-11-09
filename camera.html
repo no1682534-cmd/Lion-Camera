@@ -395,8 +395,15 @@ function cancelCamera() {
 window.addEventListener('pagehide',stopStream);
 
 if (!nonce || !returnOrigin || !window.opener) {
+
+  const diagnosis = [
+    'Nonce: ' + (nonce ? 'OK' : 'GAGAL'),
+    'Return Origin: ' + (returnOrigin ? 'OK' : 'GAGAL'),
+    'Window Opener: ' + (window.opener ? 'OK' : 'GAGAL')
+  ];
+
   showStatus(
-    'Sesi tidak valid. Buka kamera melalui aplikasi utama.',
+    'Sesi tidak valid. ' + diagnosis.join(' | '),
     'error'
   );
 
